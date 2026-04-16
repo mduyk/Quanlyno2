@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+    <title>DELTA BOSS DASHBOARD</title>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+    <style>
+        :root { --main: #00f2ff; --bg: #0a0a0a; --card: #111; }
+        body { background: var(--bg); color: #fff; font-family: sans-serif; padding: 10px; margin: 0; }
+        .box { background: var(--card); border: 1px solid #333; padding: 15px; border-radius: 12px; margin-bottom: 15px; }
+        h3 { color: var(--main); margin: 0 0 10px 0; font-size: 14px; text-transform: uppercase; border-left: 3px solid var(--main); padding-left: 10px; }
+        table { width: 100%; border-collapse: collapse; font-size: 11px; }
+        th, td { border: 1px solid #222; padding: 8px; text-align: left; }
+        input, select { background: #000; color: #fff; border: 1px solid #444; padding: 6px; border-radius: 5px; outline: none; }
+        .btn { cursor: pointer; border: none; border-radius: 5px; font-weight: bold; padding: 6px 10px; }
+        .btn-ok { background: #00ff88; color: #000; }
+        .btn-del { background: #ff4444; color: #fff; }
+        .btn-add { background: var(--main); color: #000; width: 100%; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <div style="max-width: 900px; margin: auto;">
+        <h2 style="text-align: center; color: var(--main);">BOSS CONTROL PANEL</h2>
+
+        <div class="box">
+            <h3>🆕 TẠO TÀI KHOẢN MỚI</h3>
+            <div style="display: flex; gap: 5px;">
+                <select id="reg-target" style="flex: 1;">
+                    <option value="users_shop1">Shop 1 (Thường)</option>
+                    <option value="users_shop2">Shop 2 (VIP)</option>
+                </select>
+                <input type="text" id="reg-u" placeholder="Tên User..." style="flex: 1;">
+                <input type="text" id="reg-p" placeholder="Mật khẩu..." style="flex: 1;">
+            </div>
+            <button class="btn btn-add" onclick="createNewAcc()">+ TẠO TÀI KHOẢN NGAY</button>
+        </div>
+
+        <div class="box">
+            <h3>💰 DUYỆT ĐƠN NẠP</h3>
+            <table>
+                <thead><tr><th>Khách</th><th>Tiền</th><th>Shop</th><th>Lệnh</th></tr></thead>
+                <tbody id="list-nap"></tbody>
+            </table>
+        </div>
+
+        <div class="box">
+            <h3>👥 DANH SÁCH USER SHOP 2</h3>
+            <table>
+                <thead><tr><th>Tên User</th><th>Số Dư</th><th>Lệnh</th></tr></thead>
+                <tbody id="list-u2"></tbody>
+            </table>
+        </div>
+    </div>
+
+<script>
+    const config = { apiKey: "AIzaSyBk6R1TDZeAxh37JQLgL_6Wl0v8m8Sg0", databaseURL: "https://shopctv-61f96-default-rtdb.asia-southeast1.firebasedatabase.app/" };
+    firebase.initializeApp(config); const db = firebase.database();
+
+    // Hàm tạo tài khoản chủ động
+    function createNewAcc() {
+        const target = document.getElementById('reg-target').value;
+        const u = document.getElementById('reg-u').value.trim().toLowerCase();
+        const p = document.getElementById('reg-p').value.trim();
+        if(!u || !p) return alert("Nhập đủ tên và pass sếp ơi!");
+
+        db.ref(`${target}/${u}`).once('value', s => {
+            if(s.exists()) return alert("Acc này có rồi sếp!");
+            db.ref(`${target}/${u}`).set({
+                password: p,
+                balance: 0,
+                status: 'Active'
+            }).then(() => {
+                alert(`Đã tạo thành công ${u} cho ${target}`);
+                document.getElementById('reg-u').value = "";
+                document.getElementById('reg-p').value = "";
+            });
+        });
+    }
+
+    // Theo dõi duyệt nạp
+    db.ref('bank_requests').on('value', s => {
+        const b = document.getElementById('list-nap'); b.innerHTML = "";
+        s.forEach(c => {
+            const d = c.val();
+            if(d.status === 'Pending') {
+                b.innerHTML += `<tr><td>${d.user}</td><td>${Number(d.amount).toLocaleString()}đ</td><td>${d.shop}</td>
+                <td>
+                    <button class="btn btn-ok" onclick="duyet('${d.id}','${d.user}','${d.amount}','${d.shop}','Success')">Duyệt</button>
+                    <button class="btn btn-del" onclick="duyet('${d.id}','${d.user}','0','${d.shop}','Fail')">Hủy</button>
+                </td></tr>`;
+            }
+        });
+    });
+
+    function duyet(rid, u, amt, shop, st) {
+        if(st === 'Success') db.ref(`${shop}/${u}/balance`).transaction(b => (b || 0) + Number(amt));
+        db.ref(`bank_requests/${rid}`).update({status: st});
+        db.ref(`history_pay/${u}/${rid}`).update({status: st});
+    }
+
+    // Load danh sách Shop 2 để sếp dễ quản lý
+    db.ref('users_shop2').on('value', s => {
+        const b = document.getElementById('list-u2'); b.innerHTML = "";
+        s.forEach(c => {
+            const u = c.key, d = c.val();
+            b.innerHTML += `<tr>
+                <td>${u}</td>
+                <td><input type="number" value="${d.balance}" onchange="db.ref('users_shop2/${u}/balance').set(Number(this.value))"></td>
+                <td><button class="btn btn-del" onclick="if(confirm('Xóa?')) db.ref('users_shop2/${u}').remove()">Xóa</button></td>
+            </tr>`;
+        });
+    });
+</script>
+</body>
+</html>
